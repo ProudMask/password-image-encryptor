@@ -1,44 +1,43 @@
-# Password Image Encryptor
-This Python script provides functions for encrypting a password into an image and decrypting a password from an image. It uses the least significant bit technique to modify the color channels of the image pixels and embed the password.
+# LSB Image Text Hiding
 
-## Installation 
-To use this script, you'll need to have Python 3 and the Pillow library installed. You can install Pillow using pip:
+An educational steganography example: embed UTF-8 text in the least significant bits of RGB channels, then extract it from a lossless PNG. The repository keeps its historical name, but this is **text hiding, not encryption**. Anyone with the image and format knowledge can recover the text; do not use this as a password vault.
 
-```
-pip install pillow
-```
+## Run a reproducible example
 
-## Usage
-### Encrypting a Password into an Image
-To encrypt a password into an image, you can use the encrypt_password_to_image function:
+Python 3.10 or later:
 
-```
-from password_image_encryption import encrypt_password_to_image
-
-# Encrypt the password "mysecretpassword" into the image file "input_image.png" and save the result to "output_image.png"
-encrypt_password_to_image("mysecretpassword", "input_image.png", "output_image.png")
-```
-This function takes three arguments:
-
-password: The password string to encrypt.
-image_path: The path to the input image file.
-output_path: The path to the output image file, which will contain the encrypted password.
-
-### Decrypt a Password from an Image
-To decrypt a password from an image, you can use the decrypt_password_from_image function:
-
-```
-from password_image_encryption import decrypt_password_from_image
-
-# Decrypt the password from the image file "output_image.png"
-password = decrypt_password_from_image("output_image.png")
-print(password)
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python encryptor.py demo --output outputs/cover.png
+python -c "from pathlib import Path; Path('outputs/message.txt').write_text('Hello Haneen — مرحبا', encoding='utf-8')"
+python encryptor.py embed --input outputs/cover.png --text-file outputs/message.txt --output outputs/encoded.png
+python encryptor.py extract --input outputs/encoded.png --output outputs/recovered.txt
+python -m unittest discover -s tests -v
 ```
 
-This function takes one argument:
+New output paths are required; existing files are not overwritten. The demonstration image is generated locally, and the message is synthetic. Extraction writes to a text file instead of printing its contents.
 
-image_path: The path to the image file containing the encrypted password.
-The function returns the decrypted password as a string.
+## Python API
 
-## Limitations
-This script uses the least significant bit technique to embed the password into the image pixels, which means that the encrypted password may be visible if the image is viewed at high magnification or if the image is compressed. Additionally, the script assumes that the input image is in the RGB color space, and it may not work correctly with images in other color spaces.
+```python
+from encryptor import embed_text, extract_text
+
+embed_text('Example text', 'cover.png', 'encoded.png')
+assert extract_text('encoded.png') == 'Example text'
+```
+
+The legacy function names `encrypt_password_to_image` and `decrypt_password_from_image` remain as wrappers for callers. They do not perform cryptographic encryption. Importing the module does not read or write files.
+
+## Format and validation
+
+The versioned packet contains a four-byte `LSB1` marker, a four-byte unsigned UTF-8 payload length, a four-byte CRC32, and the payload. Fields use big-endian byte order. Bits are embedded most-significant first in row-major RGB channel order. Alpha is not modified. RGB/RGBA images are supported; other Pillow modes are normalized to RGB or RGBA, preserving alpha where available.
+
+Capacity in UTF-8 bytes is `floor(width * height * 3 / 8) - 12`, with at least 12 bytes required for the header. A 100×100 image has room for 3738 payload bytes. Arabic, emoji, embedded nulls, and empty text are handled using explicit byte lengths rather than a null terminator. Oversized messages, unsupported headers, impossible lengths, and checksum mismatches fail explicitly.
+
+CRC32 detects accidental corruption; it does not authenticate a message. Recompression, resizing, filtering, or conversion to JPEG can destroy the payload. Output/extraction use PNG. Source metadata, animation frames, and color profiles are not preserved. The new packet format is not compatible with images produced by the old unframed prototype.
+
+## Verification and scope
+
+Tests cover Unicode/null round trips, exact capacity boundaries, too-small images, alpha preservation, missing payloads, corruption detection, output protection, and import behavior. These are functional checks, not claims of secrecy or resistance to steganalysis. This is a deterministic image-processing example, not an ML model.
